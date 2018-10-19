@@ -1,0 +1,47 @@
+*.bak
+*.log
+*~
+.~*
+.pypirc
+~*
+tmp*
+tags
+
+# Floydhub
+.floydexpt
+.floydignore
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# dotenv
+.env
+
+# virtualenv
+.venv
+venv/
+ENV/
+env/
+
+.vscode
+*.swp
+
+# osx generated files
+.DS_Store
+.DS_Store?
+.Trashes
+ehthumbs.db
+Thumbs.db
+.idea
+
+# pytest
+.pytest_cache
