@@ -1,7 +1,7 @@
 from fastai import *
 from fastai.text import *
 import fire
-from tensorboard_cb import *
+# from tensorboard_cb import *
 
 
 def build_directory_from_mounts(src='/floyd/input/imdb_reviews_wt103/', dst='data/', sample_size=1000):
@@ -16,7 +16,7 @@ def build_directory_from_mounts(src='/floyd/input/imdb_reviews_wt103/', dst='dat
 
 def read_csv_with_sample_size(path, sample_size, chunksize=24000):
     total_rows = get_total_length(path, chunksize=chunksize)
-    frac = sample_size/total_rows
+    frac = sample_size/total_rows if sample_size < total_rows else 1.0
     df = pd.DataFrame()
     for chunk in pd.read_csv(path, chunksize=chunksize, header=None):
         df = pd.concat([df, chunk.sample(frac=frac)])

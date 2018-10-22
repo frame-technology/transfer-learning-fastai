@@ -18,4 +18,4 @@ task:
         destination: imdb_reviews_wt103
       - source: floydhub/datasets/spacy-model-en/1
         destination: spacy_model_en
-    command: python train.py data/ --sample-size 1000 --follow
+    command: python train.py data/ --sample-size 89000 --follow
