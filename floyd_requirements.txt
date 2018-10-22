@@ -1,3 +1,5 @@
 fire
-fastai==1.0.6
+fastai >= 1.0.6
 ../input/spacy_model_en/en_core_web_sm-2.0.0.tar.gz
+tensorboard
+tensorboardX

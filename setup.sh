@@ -1,4 +1,5 @@
 #!/bin/bash
 
-# svn export https://github.com/fastai/fastai.git/trunk/courses/dl2/imdb_scripts
-python -m spacy download en
+# Just link to 'en' because the spacy model is loaded as a dataset 
+python -m spacy link en_core_web_md en
+
