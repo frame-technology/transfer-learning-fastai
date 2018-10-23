@@ -89,18 +89,6 @@ class FloydHubLogger(Callback):
         for val, name in zip(lm, metrics_names):
             self._emit_floydhub_log_line(name, val)
 
-    # def on_batch_end(self, **kwargs):
-    #     loss = kwargs["last_loss"]
-    #     if isinstance(loss, tuple):
-    #         pass
-    #         # self.writer.add_scalar("valid_loss", loss[0], iteration)
-    #         # self.writer.add_scalar("accuracy", loss[1], iteration)
-    #     else:
-    #         self._emit_floydhub_log_line("loss", loss)
-    #
-    #     self._emit_floydhub_log_line("learning_rate", self.learn.opt.lr)
-    #     self._emit_floydhub_log_line("momentum", self.learn.opt.mom)
-
 
 def sample_for_experiment(sample_size, dst, env):
     if env == 'floyd':
@@ -128,7 +116,9 @@ def read_csv_with_sample_size(path, sample_size, chunksize=24000):
 
 def train_language_model(data_dir, env, sample_size):
     # TODO allow sample_size to exceed spreadhseet size. it crashes when I enter 10000
-    data_lm = TextLMDataBunch.from_csv(data_dir, train="train_lm")
+    data_lm = TextLMDataBunch.from_csv(data_dir,
+                                       train="train_lm",
+                                       chunksize=np.ceil(sample_size/2)+1)
     print(f'Vocabulary size: {data_lm.train_ds.vocab_size}')
 
     # TODO Everything below is an attempt to mimic the hyperparaments set in this v0.7 example
@@ -159,8 +149,11 @@ def train_language_model(data_dir, env, sample_size):
 
 def train_classification_model(data_dir, env, lm_data, sample_size, lm_encoder_name):
 
-    data_clas = TextClasDataBunch.from_csv(
-        data_dir, train='train_clas', valid='valid_clas', vocab=lm_data.train_ds.vocab)
+    data_clas = TextClasDataBunch.from_csv( data_dir,
+                                            train='train_clas',
+                                            valid='valid_clas',
+                                            vocab=lm_data.train_ds.vocab,
+                                            chunksize=np.ceil(sample_size / 2) + 1)
 
     learn = RNNLearner.classifier(
         data_clas, drop_mult=0.5, clip=0.25, metrics=accuracy)
