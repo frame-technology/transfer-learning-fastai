@@ -1,5 +1,4 @@
 #!/bin/bash
-
-# Just link to 'en' because the spacy model is loaded as a dataset 
-python -m spacy link en_core_web_sm en
-# python -m spacy download en
+pip install tensorboardX==1.4
+# svn export https://github.com/fastai/fastai.git/trunk/courses/dl2/imdb_scripts
+python -m spacy download en
