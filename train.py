@@ -25,23 +25,24 @@ def read_csv_with_sample_size(path, sample_size, chunksize=24000):
 
 def train(dir_path, sample_size=1000):
     print(
-        f'dir_path {dir_path}  sample_size {sample_size}')
+        f'train.py dir_path {dir_path}  sample_size {sample_size}')
 
     build_directory_from_mounts(sample_size=sample_size)
     dftr_lm = pd.read_csv(dir_path+'train_lm.csv', header=None)
     dftr_clas = pd.read_csv(dir_path+'train_clas.csv', header=None)
 
+    # TODO allow sample_size to exceed spreadhseet size. it crashes when I enter 10000
     data_lm = TextLMDataBunch.from_csv(dir_path, train="train_lm")
     data_clas = TextClasDataBunch.from_csv(
         dir_path, train='train_clas', valid='valid_clas', vocab=data_lm.train_ds.vocab)
-
+    print(f'Vocabulary size: {data_lm.train_ds.vocab_size}')
     # TODO Everything below is an attempt to mimic the hyperparaments set in this v0.7 example
     # https://github.com/fastai/fastai/blob/master/courses/dl2/imdb.ipynb
     wd = 1e-7
     lr = 1e-3
     lrs = lr
     learn = RNNLearner.language_model(data_lm, drop_mult=0.7, pretrained_fnames=[
-        'lstm_wt103', 'itos_wt103'])
+        'lstm_wt103', 'itos_wt103'], metrics=accuracy)
     learn.fit_one_cycle(max_lr=slice(1e-3/2, 1), wd=wd, cyc_len=1)
     learn.save_encoder(f'lm_last_ft')
     learn.load_encoder(f'lm_last_ft')
@@ -51,7 +52,8 @@ def train(dir_path, sample_size=1000):
     learn.save_encoder('lm1_enc')
 
     # TODO Unsure if it's necessary to train a classifier for every class, or if v1 handles it
-    learn = RNNLearner.classifier(data_clas, drop_mult=0.5, clip=0.25)
+    learn = RNNLearner.classifier(
+        data_clas, drop_mult=0.5, clip=0.25, metrics=accuracy)
     learn.metrics = [accuracy]
     learn.load_encoder('lm1_enc')
 
@@ -70,8 +72,8 @@ def train(dir_path, sample_size=1000):
     learn.fit(lr=slice(1e-4, 1e-2), wd=wd, epochs=14)
     learn.save('clas_2')
 
-    # TODO the tensorboard file should be setup here if it works.
-    # print('{"metric": "accuracy", "value": 0.985}')
+    acc = f'{learn.recorder.metrics[0][0]}'
+    print(f'{"metric": "accuracy", "value": acc}')
 
 
 if __name__ == '__main__':
