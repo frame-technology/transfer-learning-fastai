@@ -1,70 +1,7 @@
-from fastai.text import *  # Quick access to NLP functionality
+from fastai.text import *
 import fire
-from tensorboardX import SummaryWriter
+from tensorboard_cb import *
 from fastai import *
-
-
-@dataclass
-class TensorboardLogger(Callback):
-    """
-    Via: https://github.com/Pendar2/fastai-tensorboard-callback/blob/master/tensorboard_cb.py
-    """
-    learn: Learner
-    run_name: str
-    histogram_freq: int = 100
-    path: str = None
-
-    def __post_init__(self):
-        self.path = self.path or os.path.join(self.learn.path, "logs")
-        self.log_dir = os.path.join(self.path, self.run_name)
-
-    def on_train_begin(self, **kwargs):
-        self.writer = SummaryWriter(log_dir=self.log_dir)
-
-    def on_epoch_end(self, **kwargs):
-        iteration = kwargs["iteration"]
-        metrics = kwargs["last_metrics"]
-        metrics_names = ["valid_loss"] + [o.__name__ for o in self.learn.metrics]
-
-        for val, name in zip(metrics, metrics_names):
-            self.writer.add_scalar(name, val, iteration)
-
-        for name, emb in self.learn.model.named_children():
-            if isinstance(emb, nn.Embedding):
-                self.writer.add_embedding(list(emb.parameters())[0], global_step=iteration,
-                                          tag=name)
-
-    def on_batch_end(self, **kwargs):
-        iteration = kwargs["iteration"]
-        loss = kwargs["last_loss"]
-        if isinstance(loss, tuple):
-            pass
-            # self.writer.add_scalar("valid_loss", loss[0], iteration)
-            # self.writer.add_scalar("accuracy", loss[1], iteration)
-        else:
-            self.writer.add_scalar("loss", loss, iteration)
-
-        self.writer.add_scalar("learning_rate", self.learn.opt.lr, iteration)
-        self.writer.add_scalar("momentum", self.learn.opt.mom, iteration)
-
-        if iteration % self.histogram_freq == 0:
-            for name, param in self.learn.model.named_parameters():
-                self.writer.add_histogram(name, param, iteration)
-
-    def on_train_end(self, **kwargs):
-        try:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                # dummy_input = next(iter(self.learn.data.train_dl))[0]
-                dummy_input = tuple(next(iter(self.learn.data.train_dl))[:-1])
-                # TODO waiting on this bug to be fixed before uncommenting below
-                # https://github.com/lanpa/tensorboardX/issues/229
-                # https://github.com/pytorch/pytorch/pull/12400
-                # self.writer.add_graph(self.learn.model, dummy_input)
-        except Exception as e:
-            print("Unable to create graph.")
-            print(e)
-        self.writer.close()
 
 
 @dataclass
@@ -84,13 +21,14 @@ class FloydHubLogger(Callback):
 
     def on_epoch_end(self, **kwargs):
         lm = kwargs["last_metrics"]
-        metrics_names = ["valid_loss"] + [o.__name__ for o in self.learn.metrics]
+        metrics_names = ["valid_loss"] + \
+            [o.__name__ for o in self.learn.metrics]
 
         for val, name in zip(lm, metrics_names):
             self._emit_floydhub_log_line(name, val)
 
 
-def sample_for_experiment(sample_size, dst, env):
+def sample_for_experiment(sample_size, dst, env, clean_run):
     if env == 'floyd':
         src = '/floyd/input/imdb_reviews_wt103/'
     else:
@@ -98,6 +36,9 @@ def sample_for_experiment(sample_size, dst, env):
 
     if src == dst:
         raise ValueError("Data directory must not be the same as it's source.")
+
+    if clean_run and os.path.isdir(dst):
+        shutil.rmtree(dst)
 
     shutil.copytree(src, dst)
     dftr_lm = read_csv_with_sample_size(
@@ -128,7 +69,8 @@ def train_language_model(data_dir, env, sample_size):
     lrs = lr
     learn = RNNLearner.language_model(data_lm,
                                       drop_mult=0.7,
-                                      pretrained_fnames=('lstm_wt103', 'itos_wt103'),
+                                      pretrained_fnames=(
+                                          'lstm_wt103', 'itos_wt103'),
                                       metrics=accuracy)
 
     if env == 'floyd':
@@ -137,7 +79,8 @@ def train_language_model(data_dir, env, sample_size):
     else:
         cbs = list()
 
-    learn.fit_one_cycle(max_lr=slice(1e-3 / 2, 1), wd=wd, cyc_len=1, callbacks=cbs)
+    learn.fit_one_cycle(max_lr=slice(1e-3 / 2, 1),
+                        wd=wd, cyc_len=1, callbacks=cbs)
     learn.save_encoder(f'lm_last_ft')
     learn.load_encoder(f'lm_last_ft')
     learn.unfreeze()
@@ -149,11 +92,11 @@ def train_language_model(data_dir, env, sample_size):
 
 def train_classification_model(data_dir, env, lm_data, sample_size, lm_encoder_name):
 
-    data_clas = TextClasDataBunch.from_csv( data_dir,
-                                            train='train_clas',
-                                            valid='valid_clas',
-                                            vocab=lm_data.train_ds.vocab,
-                                            chunksize=np.ceil(sample_size / 2) + 1)
+    data_clas = TextClasDataBunch.from_csv(data_dir,
+                                           train='train_clas',
+                                           valid='valid_clas',
+                                           vocab=lm_data.train_ds.vocab,
+                                           chunksize=np.ceil(sample_size / 2) + 1)
 
     learn = RNNLearner.classifier(
         data_clas, drop_mult=0.5, clip=0.25, metrics=accuracy)
@@ -169,7 +112,8 @@ def train_classification_model(data_dir, env, lm_data, sample_size, lm_encoder_n
 
     wd = 1e-7
     learn.load_encoder('lm1_enc')
-    learn.fit_one_cycle(max_lr=slice(1e-3 / 2, 1), wd=wd, cyc_len=1, callbacks=cbs)
+    learn.fit_one_cycle(max_lr=slice(1e-3 / 2, 1),
+                        wd=wd, cyc_len=1, callbacks=cbs)
 
     return learn
 
@@ -178,11 +122,8 @@ def train_lm_and_sentiment_classifier(exp_name, sample_size=1000, env='local', c
     data_dir = '_'.join([exp_name, str(sample_size)])
     print(f'train.py data_directory {data_dir}  sample_size {sample_size}')
 
-    if not os.path.isdir(data_dir):
-        sample_for_experiment(sample_size=sample_size, dst=data_dir, env=env)
-    elif clean_run:
-        shutil.rmtree(data_dir)
-        sample_for_experiment(sample_size=sample_size, dst=data_dir, env=env)
+    sample_for_experiment(sample_size=sample_size,
+                          dst=data_dir, env=env, clean_run=clean_run)
 
     print("Training Language Model...")
     lm_learner, lm_data = train_language_model(data_dir, env, sample_size)
@@ -190,7 +131,8 @@ def train_lm_and_sentiment_classifier(exp_name, sample_size=1000, env='local', c
     lm_learner.save_encoder(lm_encoder_name)
 
     print("Training Sentiment Classifier...")
-    sentiment_learner = train_classification_model(data_dir, env, lm_data, sample_size, lm_encoder_name)
+    sentiment_learner = train_classification_model(
+        data_dir, env, lm_data, sample_size, lm_encoder_name)
     acc = f'{sentiment_learner.recorder.metrics[0][0]}'
     print(f'{{"metric": "accuracy", "value": {acc}}}')
 

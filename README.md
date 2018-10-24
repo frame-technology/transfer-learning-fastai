@@ -8,12 +8,11 @@ If you want to run jobs locally, just change the sample size
 
 ```
 floyd init frame/fastai_ulmfit_test # if you haven't created job title yet
-floyd run "bash setup.sh && python train.py data/ \
+floyd run "bash setup.sh && python train.py mytest floyd \
 --sample-size 100" \
 --env pytorch-1.0 \
 --gpu \
 --follow \
 --data frame/datasets/imdb_reviews_wt103/1:imdb_reviews_wt103 \
---data floydhub/datasets/spacy-model-en/1:spacy_model_en \
 -m "sample size 100"
 ```

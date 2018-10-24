@@ -8,6 +8,7 @@ from fastai import *
 
 @dataclass
 class TensorboardLogger(Callback):
+
     learn: Learner
     run_name: str
     histogram_freq: int = 100
@@ -31,17 +32,22 @@ class TensorboardLogger(Callback):
 
         for name, emb in self.learn.model.named_children():
             if isinstance(emb, nn.Embedding):
-                self.writer.add_embedding(list(emb.parameters())[
-                                          0], global_step=iteration, tag=name)
+                self.writer.add_embedding(list(emb.parameters())[0], global_step=iteration,
+                                          tag=name)
 
     def on_batch_end(self, **kwargs):
         iteration = kwargs["iteration"]
         loss = kwargs["last_loss"]
+        if isinstance(loss, tuple):
+            pass
+            # self.writer.add_scalar("valid_loss", loss[0], iteration)
+            # self.writer.add_scalar("accuracy", loss[1], iteration)
+        else:
+            self.writer.add_scalar("loss", loss, iteration)
 
         self.writer.add_scalar("learning_rate", self.learn.opt.lr, iteration)
         self.writer.add_scalar("momentum", self.learn.opt.mom, iteration)
 
-        self.writer.add_scalar("loss", loss, iteration)
         if iteration % self.histogram_freq == 0:
             for name, param in self.learn.model.named_parameters():
                 self.writer.add_histogram(name, param, iteration)
@@ -50,8 +56,12 @@ class TensorboardLogger(Callback):
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                dummy_input = next(iter(self.learn.data.train_dl))[0]
-                self.writer.add_graph(self.learn.model, tuple(dummy_input))
+                # dummy_input = next(iter(self.learn.data.train_dl))[0]
+                dummy_input = tuple(next(iter(self.learn.data.train_dl))[:-1])
+                # TODO waiting on this bug to be fixed before uncommenting below
+                # https://github.com/lanpa/tensorboardX/issues/229
+                # https://github.com/pytorch/pytorch/pull/12400
+                # self.writer.add_graph(self.learn.model, dummy_input)
         except Exception as e:
             print("Unable to create graph.")
             print(e)
