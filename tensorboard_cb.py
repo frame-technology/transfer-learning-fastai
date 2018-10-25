@@ -1,14 +1,37 @@
-"""
-pulled from https://github.com/Pendar2/fastai-tensorboard-callback
-"""
-
 from tensorboardX import SummaryWriter
 from fastai import *
 
 
 @dataclass
+class FloydHubLogger(Callback):
+    learn: Learner
+    run_name: str
+    histogram_freq: int = 100
+    path: str = None
+
+    def _emit_floydhub_log_line(self, key, value):
+        try:
+            value = float(value)
+        except ValueError:
+            print("Floydhub reporting only support single dimension float metrics")
+        else:
+            print(f'{{"metric": "{key}", "value": {value}}}')
+
+    def on_epoch_end(self, **kwargs):
+        lm = kwargs["last_metrics"]
+        metrics_names = ["valid_loss"] + \
+            [o.__name__ for o in self.learn.metrics]
+
+        for val, name in zip(lm, metrics_names):
+            self._emit_floydhub_log_line(name, val)
+
+
+@dataclass
 class TensorboardLogger(Callback):
 
+    """
+    via from https://github.com/Pendar2/fastai-tensorboard-callback
+    """
     learn: Learner
     run_name: str
     histogram_freq: int = 100
