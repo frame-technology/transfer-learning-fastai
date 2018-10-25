@@ -75,7 +75,8 @@ def train_language_model(data_dir, env, sample_size, global_lm):
     wd = 1e-7
     lr = 1e-3
     lrs = lr
-    pretrained_fnames = ('lstm_wt103', 'itos_wt103') if global_lm is True else None
+    pretrained_fnames = (
+        'lstm_wt103', 'itos_wt103') if global_lm is True else None
 
     learn = RNNLearner.language_model(data_lm,
                                       # drop_mult=0.7,
@@ -146,7 +147,7 @@ def train_lm_and_sentiment_classifier(exp_name, sample_size=1000, env='local', c
     lm_encoder_name = 'lm1_enc'
     lm_learner, lm_data = train_language_model(
         data_dir, env, sample_size, global_lm)
-    lm_learner.save_encoder(lm_encoder_name)
+    lm_learner.save_encoder(lm_encoder_name) if lm_learner else None
 
     print("Training Sentiment Classifier...")
     sentiment_learner = train_classification_model(
