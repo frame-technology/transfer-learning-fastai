@@ -1,9 +1,8 @@
 import time
-
-from fastai.text import *
 import fire
-from tensorboard_cb import *
+from fastai.text import *
 from fastai import *
+from tensorboard_cb import *
 
 
 def timeit(method):
@@ -13,13 +12,13 @@ def timeit(method):
     :return:
     """
 
-    def timed(*args, **kw):
+    def timed(*args, **kwargs):
         ts = time.time()
-        result = method(*args, **kw)
+        result = method(*args, **kwargs)
         te = time.time()
-        if 'log_time' in kw:
-            name = kw.get('log_name', method.__name__.upper())
-            kw['log_time'][name] = int((te - ts) * 1000)
+        if 'log_time' in kwargs:
+            name = kwargs.get('log_name', method.__name__.upper())
+            kwargs['log_time'][name] = int((te - ts) * 1000)
         else:
             print('%r  %2.2f ms' % (method.__name__, (te - ts) * 1000))
         return result
@@ -133,7 +132,6 @@ def train_classification_model(data_dir, env, lm_data, sample_size, lm_encoder_n
     return learn
 
 
-@timeit
 def train_lm_and_sentiment_classifier(exp_name, sample_size=1000, env='local', clean_run=True,
                                       global_lm=True):
     data_dir = '_'.join([exp_name, str(sample_size)])

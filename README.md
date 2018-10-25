@@ -11,5 +11,5 @@ floyd run "bash setup.sh && python train.py mytest floyd \
 --env pytorch-1.0 --gpu \
 --follow \
 --data frame/datasets/imdb_reviews_wt103/1:imdb_reviews_wt103 \
--m "sample size 100"
+-m 'samples = 100, use pretrained language model = False'
 ```
