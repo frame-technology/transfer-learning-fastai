@@ -1,157 +1,181 @@
-import time
+import tarfile
+
 import fire
 from fastai.text import *
-from fastai import *
-from tensorboard_cb import *
+from callbacks import *
 
 
-def timeit(method):
+def get_imdb_data(working_dir):
     """
-    VIA https://medium.com/pythonhive/python-decorator-to-measure-the-execution-time-of-methods-fa04cb6bb36d
-    :param method:
+    Downloads and parses the aclIMDB dataset from Stanford. Will not repeat download if a local
+    copy already exists.
+    :param working_dir:
+    :return: df_trn - training data (labeled and unlabeled)
+             df_val - validation data (all labeled)
+    """
+
+    def untar_data(url: str, fname: PathOrStr = None, dest: PathOrStr = None):
+        "Download `url` if doesn't exist to `fname` and un-tgz to folder `dest`"
+        dest = Path(dest)
+        fname = Path(fname)
+        download_url(url, fname)
+        if not dest.exists():
+            tarfile.open(fname, 'r:gz').extractall(dest.parent)
+        return dest
+
+    untar_data(url='http://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz',
+               fname='aclImdb_v1.tar.gz',
+               dest=working_dir/'aclImdb')
+
+    CLASSES = ['neg', 'pos', 'unsup']
+
+    def get_texts(path):
+        texts, labels = [], []
+        for idx, label in enumerate(CLASSES):
+            for fname in (path/label).glob('*.*'):
+                texts.append(fname.open('r', encoding='utf-8').read())
+                labels.append(idx)
+        return np.array(texts), np.array(labels)
+
+    trn_texts, trn_labels = get_texts(working_dir / 'aclImdb' / 'train')
+    val_texts, val_labels = get_texts(working_dir / 'aclImdb' / 'test')
+
+    col_names = ['labels', 'text']
+
+    df_trn = pd.DataFrame({'text': trn_texts, 'labels': trn_labels}, columns=col_names)
+    df_val = pd.DataFrame({'text': val_texts, 'labels': val_labels}, columns=col_names)
+
+    return df_trn, df_val
+
+
+def sample_for_experiment(train_df, test_df, sample_size, dst):
+    """
+    Given training and test data, sample with respect to sample size and store samples in csv's
+    (as fast.ai prefers) in dst. Note we make a number of assumptions here:
+        1. we are not stratifying our sample (imdb data is already balanced)
+        2. labeled data set aside
+    :param train_df:
+    :param test_df:
+    :param sample_size:
+    :param dst:
     :return:
     """
 
-    def timed(*args, **kwargs):
-        ts = time.time()
-        result = method(*args, **kwargs)
-        te = time.time()
-        if 'log_time' in kwargs:
-            name = kwargs.get('log_name', method.__name__.upper())
-            kwargs['log_time'][name] = int((te - ts) * 1000)
-        else:
-            print('%r  %2.2f ms' % (method.__name__, (te - ts) * 1000))
-        return result
+    # count of labeled examples to be used in our classification task
+    task_training_size = 500
+    task_testing_size = 500
 
-    return timed
+    # sample labeled sentiment
+    labeled_train = train_df[train_df['labels'] != 2].sample(n=task_training_size)
 
-
-@timeit
-def sample_for_experiment(sample_size, dst, env, clean_run):
-    if env == 'floyd':
-        src = '/floyd/input/imdb_reviews_wt103/'
+    if sample_size > task_training_size:
+        additional_rows = sample_size - task_training_size
     else:
-        src = 'data/csv/'
+        additional_rows = 0
 
-    if src == dst:
-        raise ValueError("Data directory must not be the same as it's source.")
+    if additional_rows > 0:
+        # pull additional examples from unlabeled set for language model training
+        lm_train = train_df[False == train_df.index.isin(labeled_train.index)].sample(n=additional_rows)
+        lm_train = pd.concat([labeled_train, lm_train])
+    else:
+        lm_train = labeled_train
 
-    if clean_run and os.path.isdir(dst):
-        shutil.rmtree(dst)
+    lm_train.to_csv(dst / 'train_lm.csv', header=False, index=False)
 
-    shutil.copytree(src, dst)
-    dftr_lm = read_csv_with_sample_size(
-        os.path.join(dst, 'train.csv'), sample_size=sample_size)
-    dftr_lm.to_csv(os.path.join(dst, 'train_lm.csv'),
-                   header=False, index=False)
-
-
-@timeit
-def read_csv_with_sample_size(path, sample_size, chunksize=24000):
-    total_rows = get_total_length(path, chunksize=chunksize)
-    chunk_length = get_chunk_length(path, chunksize=chunksize)
-    # protect against zero
-    sample_size = max(sample_size, 1)
-    # protect against a fraction too small to sample from a chunk
-    frac = min(max(sample_size, chunk_length + 1) / total_rows, 1.0)
-    df = pd.DataFrame()
-    for chunk in pd.read_csv(path, chunksize=chunksize, header=None):
-        df = pd.concat([df, chunk.sample(frac=frac)])
-    return df[:sample_size]
+    CLASSES = ['neg', 'pos']
+    (dst / 'classes.txt').open('w', encoding='utf-8').writelines(f'{o}\n' for o in CLASSES)
+    labeled_train.to_csv(dst / 'train_clas.csv', header=False, index=False)
+    test_df.sample(n=task_testing_size).to_csv(dst / 'valid.csv', header=False, index=False)
 
 
-@timeit
-def train_language_model(data_dir, env, sample_size, global_lm):
-    if sample_size < 100:
-        return None, None
+def train_language_model(data_dir, env, global_lm):
 
     data_lm = TextLMDataBunch.from_csv(data_dir,
                                        train="train_lm")
-    print(f'Vocabulary size: {data_lm.train_ds.vocab_size}')
+    print(f'LM Train Vocabulary size: {data_lm.train_ds.vocab_size}')
 
-    # TODO Everything below is an attempt to mimic the hyperparaments set in this v0.7 example
-    # https://github.com/fastai/fastai/blob/master/courses/dl2/imdb.ipynb
-    wd = 1e-7
-    lr = 1e-3
-    lrs = lr
     pretrained_fnames = (
         'lstm_wt103', 'itos_wt103') if global_lm is True else None
 
     learn = RNNLearner.language_model(data_lm,
-                                      # drop_mult=0.7,
                                       pretrained_fnames=pretrained_fnames,
                                       metrics=[accuracy])
 
+    print(f'LM Vocabulary size: {learn.model[0].encoder.num_embeddings}')
+    print(f'LM Embedding dim: {learn.model[0].encoder.embedding_dim}')
+
     if env == 'floyd':
-        cbs = [TensorboardLogger(learn, f"transfer-learning-{sample_size}"),
-               FloydHubLogger(learn, f"transfer-learning-{sample_size}")]
+        cbs = [TensorboardLogger(learn, f"transfer-learning"),
+               FloydHubLogger(learn, f"transfer-learning")]
     else:
         cbs = list()
-
-    # learn.fit_one_cycle(max_lr=lrs * 10,
-    #                     wd=wd, cyc_len=1, callbacks=cbs)
-    # learn.save_encoder(f'lm_last_ft')
-    # learn.load_encoder(f'lm_last_ft')
     learn.unfreeze()
-    # learn.lr_find(start_lr=lrs / 10, end_lr=lrs * 10)
     learn.fit(lr=slice(1e-4, 1e-2),
-              # wd=wd,
-              epochs=15,
+              epochs=8,
               callbacks=cbs)
 
     return learn, data_lm
 
 
-@timeit
-def train_classification_model(data_dir, env, lm_data, sample_size, lm_encoder_name):
-    vocab = lm_data.train_ds.vocab if lm_data else None
+def train_classification_model(data_dir, env, lm_data, lm_encoder_name):
+
+    vocab = lm_data.train_ds.vocab
+
     data_clas = TextClasDataBunch.from_csv(data_dir,
                                            train='train_clas',
-                                           valid='valid_clas',
                                            vocab=vocab)
 
-    learn = RNNLearner.classifier(
-        data_clas, drop_mult=0.5, clip=0.25, metrics=[accuracy])
+    print(f'Classifier Train Data Vocabulary size: {len(data_clas.vocab.itos)}')
+    learn = RNNLearner.classifier(data_clas,
+                                  drop_mult=0.5,
+                                  clip=0.25,
+                                  metrics=[accuracy])
+
+    print(f'Classifier Vocabulary size: {learn.model[0].encoder.num_embeddings}')
+    print(f'Classifier Embedding dim: {learn.model[0].encoder.embedding_dim}')
 
     if env == 'floyd':
-        cbs = [TensorboardLogger(learn, f"transfer-learning-{sample_size}"),
-               FloydHubLogger(learn, f"transfer-learning-{sample_size}")]
+        cbs = [TensorboardLogger(learn, f"transfer-learning"),
+               FloydHubLogger(learn, f"transfer-learning")]
     else:
         cbs = list()
 
-    try:
-        learn.load_encoder(lm_encoder_name)
-    except:
-        print(f"Couldn't find encoder {lm_encoder_name}")
+    learn.load_encoder(lm_encoder_name)
 
-    # wd = 1e-7
-    # learn.fit_one_cycle(max_lr=1e-3 * 10, wd=wd, cyc_len=1, callbacks=cbs)
-
-    learn.fit(15, 1e-3, callbacks=cbs)
-
+    learn.fit(8, 1e-3, callbacks=cbs)
     return learn
 
 
-def train_lm_and_sentiment_classifier(exp_name, sample_size=1000, env='local', clean_run=True,
+def train_lm_and_sentiment_classifier(exp_name, sample_size=1000, env='local',
                                       global_lm=True):
     data_dir = '_'.join([exp_name, str(sample_size)])
-    print(
-        f'train.py data_directory {data_dir} sample_size={sample_size} global_lm={global_lm} clean_run {clean_run} env {env}')
+    data_dir = Path(f'./{data_dir}/')
 
-    sample_for_experiment(sample_size=sample_size,
-                          dst=data_dir, env=env, clean_run=clean_run)
+    # grab and parse imdb review sentiment data
+    df_trn, df_val = get_imdb_data(data_dir)
+
+    # make sure we have wikitext language model
+    model_path = data_dir / 'models'
+    model_path.mkdir(exist_ok=True)
+    url = 'http://files.fast.ai/models/wt103_v1/'
+    download_url(f'{url}lstm_wt103.pth', model_path / 'lstm_wt103.pth')
+    download_url(f'{url}itos_wt103.pkl', model_path / 'itos_wt103.pkl')
+
+    sample_for_experiment(train_df=df_trn,
+                          test_df=df_val,
+                          sample_size=sample_size,
+                          dst=data_dir)
 
     print("Training Language Model...")
     lm_encoder_name = 'lm1_enc'
     lm_learner, lm_data = train_language_model(
-        data_dir, env, sample_size, global_lm)
-    lm_learner.save_encoder(lm_encoder_name) if lm_learner else None
+        data_dir, env, global_lm)
+    lm_learner.save_encoder(lm_encoder_name)
 
     print("Training Sentiment Classifier...")
     sentiment_learner = train_classification_model(
-        data_dir, env, lm_data, sample_size, lm_encoder_name)
-    acc = f'{sentiment_learner.recorder.metrics[0][0]}'
-    print(f'{{"metric": "accuracy", "value": {acc}}}')
+        data_dir, env, lm_data, lm_encoder_name)
+    f'{sentiment_learner.recorder.metrics[0][0]}'
 
 
 if __name__ == '__main__':
