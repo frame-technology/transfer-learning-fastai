@@ -3,19 +3,9 @@
 #
 env: pytorch-1.0
 machine: cpu
-input:
-  - source: frame/datasets/imdb_reviews_wt103/1
-    destination: imdb_reviews_wt103
-  - source: floydhub/datasets/spacy-model-en/1
-    destination: spacy_model_en
 
 task:
   train:
-    machine: gpu
-    description: Run through all scripts to train lm
-    input:
-      - source: frame/datasets/imdb_reviews_wt103/1
-        destination: imdb_reviews_wt103
-      - source: floydhub/datasets/spacy-model-en/1
-        destination: spacy_model_en
-    command: python train.py data/ --sample-size 89000 --follow
+    machine: gpu2
+    description: example job for transfer learning test
+    command: bash setup.sh && python train.py test floyd --sample-size=2000 --global-lm=True
