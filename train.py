@@ -53,12 +53,17 @@ def sample_for_experiment(train_df, test_df, sample_size, dst):
     Given training and test data, sample with respect to sample size and store samples in csv's
     (as fast.ai prefers) in dst. Note we make a number of assumptions here:
         1. we are not stratifying our sample (imdb data is already balanced)
-        2. labeled data set aside
-    :param train_df:
-    :param test_df:
-    :param sample_size:
-    :param dst:
-    :return:
+        2. labeled data sampled for sentiment classification training is also present in the
+           language model training data to ensure alignment in vocab and also as a practical matter
+           would be true of any real world scenario.
+        3. since the classification task isnt an axis of exploration in this experiment we hard
+           code in a test and training size of 500 labeled examples. This could be an interesting
+           axis of future exploration.
+    :param train_df: dataframe with text and label columns
+    :param test_df: dataframe with text and label columns
+    :param sample_size: samples of domain examples to be used as training for a language model
+    :param dst: directory location of the resulting sampled CVS
+    :return: None
     """
 
     # count of labeled examples to be used in our classification task
@@ -89,6 +94,15 @@ def sample_for_experiment(train_df, test_df, sample_size, dst):
 
 
 def train_language_model(data_dir, env, global_lm):
+    """
+    Trains a language model using fast.ai from csv's found in data_dir. Optionally loads the
+    pretrained language model (Stanford's wikitext). A lot can be done to tweak model fit, here
+    we take a simple and conservative approach for clarity.
+    :param data_dir: location of training and test csvs as well as the model directory
+    :param env: flag that impacts what logging is enabled, tensorboard logging is on if env = floyd
+    :param global_lm: BOOL, indicate if model should include pretrained LM
+    :return: trained_model, data_used
+    """
 
     data_lm = TextLMDataBunch.from_csv(data_dir,
                                        train="train_lm")
@@ -118,6 +132,16 @@ def train_language_model(data_dir, env, global_lm):
 
 
 def train_classification_model(data_dir, env, lm_data, lm_encoder_name):
+    """
+    Trains a classifier using fast.ai from csv's found in data_dir a language model. As with the
+    language model training, a lot can be done to tweak model fit, but here we take a simple and
+    conservative approach for clarity.
+    :param data_dir: location of training and test csvs as well as the model directory
+    :param env: flag that impacts what logging is enabled, tensorboard logging is on if env = floyd
+    :param lm_data: data used in the building the language model--used to seed model with vocab
+    :param lm_encoder_name: previously trained language model name
+    :return: trained model
+    """
 
     vocab = lm_data.train_ds.vocab
 
